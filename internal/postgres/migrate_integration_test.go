@@ -15,7 +15,7 @@ import (
 )
 
 func TestMigrate(t *testing.T) {
-	pool := migrationPool(t)
+	pool := testPool(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
@@ -26,9 +26,11 @@ func TestMigrate(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM users) = 0 AND
 		(SELECT count(*) FROM channels) = 0 AND
-		(SELECT count(*) FROM schema_migrations) = 1 AND
-		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '001_initial.sql')`).Scan(&empty); err != nil || !empty {
-		t.Fatalf("initial schema: empty tables and one version = %v, error = %v", empty, err)
+		(SELECT count(*) FROM schema_migrations) = 2 AND
+		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '001_initial.sql') AND
+		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '002_seed.sql') AND
+		(SELECT count(*) FROM data_seeds) = 0`).Scan(&empty); err != nil || !empty {
+		t.Fatalf("initial schema: empty tables and two versions = %v, error = %v", empty, err)
 	}
 
 	var userID, channelID int64
@@ -74,6 +76,13 @@ func TestMigrate(t *testing.T) {
 		})
 	}
 
+	// Recreate the state before 002_seed.sql to verify an upgrade preserves data.
+	if _, err := pool.Exec(ctx, "DROP TABLE data_seeds; DELETE FROM schema_migrations WHERE version = '002_seed.sql'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatalf("upgrade migration: %v", err)
+	}
 	if err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
@@ -84,7 +93,7 @@ func TestMigrate(t *testing.T) {
 			AND stream_url = 'https://stream.example.com/live/1/index.m3u8') AND
 		(SELECT count(*) FROM users) = 1 AND
 		(SELECT count(*) FROM channels) = 2 AND
-		(SELECT count(*) FROM schema_migrations) = 1`, userID, channelID).Scan(&preserved); err != nil || !preserved {
+		(SELECT count(*) FROM schema_migrations) = 2`, userID, channelID).Scan(&preserved); err != nil || !preserved {
 		t.Fatalf("repeat migration preserved data and version: %v, error = %v", preserved, err)
 	}
 }
@@ -113,7 +122,7 @@ func TestMigrateRollback(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pool := migrationPool(t)
+			pool := testPool(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			if _, err := pool.Exec(ctx, tc.setup); err != nil {
@@ -140,7 +149,7 @@ func TestMigrateRollback(t *testing.T) {
 			var complete bool
 			if err := pool.QueryRow(ctx, `SELECT
 				to_regclass('users') IS NOT NULL AND to_regclass('channels') IS NOT NULL AND
-				(SELECT count(*) FROM schema_migrations) = 1`).Scan(&complete); err != nil || !complete {
+				(SELECT count(*) FROM schema_migrations) = 2`).Scan(&complete); err != nil || !complete {
 				t.Fatalf("retry created schema and version: %v, error = %v", complete, err)
 			}
 		})
@@ -148,7 +157,7 @@ func TestMigrateRollback(t *testing.T) {
 }
 
 func TestMigrateCancellation(t *testing.T) {
-	pool := migrationPool(t)
+	pool := testPool(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := postgres.Migrate(ctx, pool); err != nil {
@@ -182,7 +191,7 @@ func TestMigrateCancellation(t *testing.T) {
 	}
 }
 
-func migrationPool(t *testing.T) *pgxpool.Pool {
+func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	databaseURL, _ := isolatedDatabase(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
