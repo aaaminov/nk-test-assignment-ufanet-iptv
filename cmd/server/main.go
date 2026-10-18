@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"nk-test-assignment-ufanet-iptv/internal/config"
+	"nk-test-assignment-ufanet-iptv/internal/postgres"
 )
 
 func main() {
@@ -27,6 +28,14 @@ func run() int {
 
 	stop, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+
+	pool, err := postgres.Open(stop, cfg.DatabaseURL, cfg.DBMaxConns)
+	if err != nil {
+		// Driver errors can include the DSN, so keep startup logs free of connection details.
+		logger.Error("connect PostgreSQL failed")
+		return 1
+	}
+	defer pool.Close()
 
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {

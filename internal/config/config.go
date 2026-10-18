@@ -10,13 +10,15 @@ import (
 )
 
 type Config struct {
-	HTTPAddr string
-	LogLevel slog.Level
+	HTTPAddr    string
+	LogLevel    slog.Level
+	DatabaseURL string
+	DBMaxConns  int32
 }
 
-// Load reads process settings. Unset variables use defaults; empty values are invalid.
+// Load reads process settings. Unset optional variables use defaults; empty values are invalid.
 func Load() (Config, error) {
-	cfg := Config{HTTPAddr: ":8080", LogLevel: slog.LevelInfo}
+	cfg := Config{HTTPAddr: ":8080", LogLevel: slog.LevelInfo, DBMaxConns: 10}
 	if addr, ok := os.LookupEnv("HTTP_ADDR"); ok {
 		cfg.HTTPAddr = addr
 	}
@@ -41,6 +43,17 @@ func Load() (Config, error) {
 		default:
 			return Config{}, errors.New("LOG_LEVEL must be debug, info, warn or error")
 		}
+	}
+	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		return Config{}, errors.New("DATABASE_URL is required")
+	}
+	if value, ok := os.LookupEnv("DB_MAX_CONNS"); ok {
+		maxConns, err := strconv.ParseInt(value, 10, 32)
+		if err != nil || maxConns <= 0 {
+			return Config{}, errors.New("DB_MAX_CONNS must be a positive int32")
+		}
+		cfg.DBMaxConns = int32(maxConns)
 	}
 	return cfg, nil
 }
