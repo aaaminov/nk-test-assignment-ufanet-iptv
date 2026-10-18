@@ -37,6 +37,11 @@ func run() int {
 	}
 	defer pool.Close()
 
+	if err := postgres.Migrate(stop, pool); err != nil {
+		logger.Error("migrate PostgreSQL failed")
+		return 1
+	}
+
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		logger.Error("listen HTTP failed", "error", err)
