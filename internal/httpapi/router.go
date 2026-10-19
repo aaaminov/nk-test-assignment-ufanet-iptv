@@ -14,12 +14,26 @@ type ChannelLister interface {
 }
 
 func NewRouter(users UserLookup, channels ChannelLister, playback PlaybackGetter, logger *slog.Logger) http.Handler {
+	notFound := func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, logger, http.StatusNotFound, "not_found", "resource not found")
+	}
+	methodNotAllowed := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, logger, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
+
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/channels", listChannels(channels, logger))
+	api.HandleFunc("/api/v1/channels", methodNotAllowed)
 	api.HandleFunc("GET /api/v1/channels/{id}/playback", getPlayback(playback, logger))
+	api.HandleFunc("/api/v1/channels/{id}/playback", methodNotAllowed)
+	api.HandleFunc("/", notFound)
 
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", BasicAuth(users, logger, api))
+	protected := BasicAuth(users, logger, api)
+	mux.Handle("/api/v1", protected)
+	mux.Handle("/api/v1/", protected)
+	mux.HandleFunc("/", notFound)
 	return mux
 }
 
