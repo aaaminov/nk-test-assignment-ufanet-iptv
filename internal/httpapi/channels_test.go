@@ -70,7 +70,7 @@ func TestChannels(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/api/v1/channels", nil).WithContext(ctx)
 			r.SetBasicAuth("catalog-test-user", "catalog-test-password")
 			w := httptest.NewRecorder()
-			httpapi.NewRouter(users, catalog, logger).ServeHTTP(w, r)
+			httpapi.NewRouter(users, catalog, nil, logger).ServeHTTP(w, r)
 
 			if !called || w.Code != tc.wantStatus || w.Body.String() != tc.wantBody+"\n" {
 				t.Fatalf("called = %v, status = %d, body = %s", called, w.Code, w.Body.String())

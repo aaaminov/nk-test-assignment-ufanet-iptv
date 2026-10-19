@@ -2,7 +2,7 @@
 
 Мини-бэкенд IPTV/OTT на Go и PostgreSQL. Сейчас реализованы HTTP-процесс,
 конфигурация, подключение к БД, автоматические миграции и demo-данные.
-Доступен каталог каналов с HTTP Basic Auth; playback пока не реализован.
+Доступны каталог каналов и выдача HLS URL с HTTP Basic Auth.
 
 ## Запуск
 
@@ -84,6 +84,24 @@ curl -u viewer:viewer_demo http://127.0.0.1:8080/api/v1/channels
 `{"error":{"code":"internal_error","message":"internal server error"}}`;
 для `401` используются `code: unauthorized` и `message: authentication required`.
 SQL-запрос каталога ограничен 3 секундами и учитывает отмену HTTP-запроса.
+
+## Playback
+
+```sh
+curl -u viewer:viewer_demo http://127.0.0.1:8080/api/v1/channels/1/playback
+```
+
+`GET /api/v1/channels/{id}/playback` возвращает `200` и JSON вида
+`{"channel_id":1,"url":"https://stream.example.com/live/ch1/index.m3u8"}`.
+URL берётся из `stream_url` активного канала в БД; потоковый сервер не нужен.
+Доступ защищён тем же Basic Auth, что и каталог.
+
+ID разбирается как положительный десятичный `int64` (от 1 до 9223372036854775807).
+Неверное число, ноль, отрицательное значение или переполнение дают `400`
+с `code: invalid_id` и `message: channel id must be a positive int64`.
+Несуществующий или выключенный канал даёт `404` с `code: channel_not_found`
+и `message: channel not found`. Формат JSON-ошибок и безопасный `500` совпадают
+с каталогом. SQL использует параметр ID, timeout 3 секунды и context HTTP-запроса.
 
 ## Проверки
 

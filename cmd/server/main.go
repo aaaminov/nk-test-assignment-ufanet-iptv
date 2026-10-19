@@ -56,7 +56,8 @@ func run() int {
 
 	repository := postgres.NewRepository(pool)
 	catalog := iptv.NewCatalog(repository)
-	server := newHTTPServer(cfg.HTTPAddr, httpapi.NewRouter(repository, catalog, logger), logger)
+	player := iptv.NewPlayer(repository)
+	server := newHTTPServer(cfg.HTTPAddr, httpapi.NewRouter(repository, catalog, player, logger), logger)
 	if err := serve(stop, server, listener, logger, shutdownTimeout); err != nil {
 		logger.Error("HTTP server failed", "error", err)
 		return 1

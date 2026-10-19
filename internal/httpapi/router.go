@@ -13,9 +13,10 @@ type ChannelLister interface {
 	ListChannels(ctx context.Context) ([]iptv.Channel, error)
 }
 
-func NewRouter(users UserLookup, channels ChannelLister, logger *slog.Logger) http.Handler {
+func NewRouter(users UserLookup, channels ChannelLister, playback PlaybackGetter, logger *slog.Logger) http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/channels", listChannels(channels, logger))
+	api.HandleFunc("GET /api/v1/channels/{id}/playback", getPlayback(playback, logger))
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", BasicAuth(users, logger, api))

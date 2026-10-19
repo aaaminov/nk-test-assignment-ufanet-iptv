@@ -32,7 +32,7 @@ func TestChannelsPostgreSQL(t *testing.T) {
 	}
 	repository := postgres.NewRepository(pool)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	server := httptest.NewServer(httpapi.NewRouter(repository, iptv.NewCatalog(repository), logger))
+	server := httptest.NewServer(httpapi.NewRouter(repository, iptv.NewCatalog(repository), iptv.NewPlayer(repository), logger))
 	t.Cleanup(server.Close)
 	client := server.Client()
 	client.Timeout = 5 * time.Second
