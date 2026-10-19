@@ -69,6 +69,20 @@ func TestShutdown(t *testing.T) {
 				t.Fatal("shutdown did not start")
 			}
 
+			// Shutdown callbacks can run before the listener has finished closing.
+			until := time.Now().Add(time.Second)
+			for {
+				conn, err := net.DialTimeout("tcp", listener.Addr().String(), 100*time.Millisecond)
+				if err != nil {
+					break
+				}
+				conn.Close()
+				if time.Now().After(until) {
+					t.Fatal("server still accepts new connections during shutdown")
+				}
+				time.Sleep(time.Millisecond)
+			}
+
 			if tc.wantErr == nil {
 				if request.Err() != nil {
 					t.Fatal("request canceled before graceful shutdown finished")
