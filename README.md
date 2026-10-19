@@ -2,7 +2,7 @@
 
 Мини-бэкенд IPTV/OTT на Go и PostgreSQL. Сейчас реализованы HTTP-процесс,
 конфигурация, подключение к БД, автоматические миграции и demo-данные.
-API пока отсутствует; HTTP-запросы возвращают 404.
+Доступны каталог каналов и выдача HLS URL с HTTP Basic Auth.
 
 ## Запуск
 
@@ -66,6 +66,42 @@ HLS URL имеют вид `https://stream.example.com/live/ch1/index.m3u8`;
 без root; exec `ENTRYPOINT` передаёт SIGTERM непосредственно процессу.
 Приложение даёт HTTP-запросам до 10 секунд на завершение, затем закрывает
 pool БД. Compose ждёт остановки процесса до 15 секунд.
+
+## Каталог каналов
+
+```sh
+curl -u viewer:viewer_demo http://127.0.0.1:8080/api/v1/channels
+```
+
+`GET /api/v1/channels` возвращает `200` и JSON вида
+`{"channels":[{"id":1,"number":1,"name":"Первый"}]}`. В списке только
+активные каналы, упорядоченные по `number`, затем `id`; пустой каталог —
+`{"channels":[]}`. URL потоков в каталог не входят.
+
+Доступ разрешён активному пользователю с верным паролем. Отсутствующие или
+неверные credentials дают `401` с `WWW-Authenticate: Basic realm="iptv"`.
+Внутренний сбой даёт `500` без подробностей БД. Формат ошибок:
+`{"error":{"code":"internal_error","message":"internal server error"}}`;
+для `401` используются `code: unauthorized` и `message: authentication required`.
+SQL-запрос каталога ограничен 3 секундами и учитывает отмену HTTP-запроса.
+
+## Playback
+
+```sh
+curl -u viewer:viewer_demo http://127.0.0.1:8080/api/v1/channels/1/playback
+```
+
+`GET /api/v1/channels/{id}/playback` возвращает `200` и JSON вида
+`{"channel_id":1,"url":"https://stream.example.com/live/ch1/index.m3u8"}`.
+URL берётся из `stream_url` активного канала в БД; потоковый сервер не нужен.
+Доступ защищён тем же Basic Auth, что и каталог.
+
+ID разбирается как положительный десятичный `int64` (от 1 до 9223372036854775807).
+Неверное число, ноль, отрицательное значение или переполнение дают `400`
+с `code: invalid_id` и `message: channel id must be a positive int64`.
+Несуществующий или выключенный канал даёт `404` с `code: channel_not_found`
+и `message: channel not found`. Формат JSON-ошибок и безопасный `500` совпадают
+с каталогом. SQL использует параметр ID, timeout 3 секунды и context HTTP-запроса.
 
 ## Проверки
 

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"nk-test-assignment-ufanet-iptv/internal/postgres"
+	"nk-test-assignment-ufanet-iptv/internal/testdb"
 )
 
 func TestMigrate(t *testing.T) {
@@ -193,7 +194,7 @@ func TestMigrateCancellation(t *testing.T) {
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	databaseURL, _ := isolatedDatabase(t)
+	databaseURL, _ := testdb.IsolatedDatabase(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	pool, err := postgres.Open(ctx, databaseURL, 2)

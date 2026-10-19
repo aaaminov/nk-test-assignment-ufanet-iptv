@@ -4,12 +4,13 @@ import (
 	"context"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"nk-test-assignment-ufanet-iptv/internal/config"
+	"nk-test-assignment-ufanet-iptv/internal/httpapi"
+	"nk-test-assignment-ufanet-iptv/internal/iptv"
 	"nk-test-assignment-ufanet-iptv/internal/postgres"
 )
 
@@ -53,7 +54,10 @@ func run() int {
 		return 1
 	}
 
-	server := newHTTPServer(cfg.HTTPAddr, http.NewServeMux(), logger)
+	repository := postgres.NewRepository(pool)
+	catalog := iptv.NewCatalog(repository)
+	player := iptv.NewPlayer(repository)
+	server := newHTTPServer(cfg.HTTPAddr, httpapi.NewRouter(repository, catalog, player, logger), logger)
 	if err := serve(stop, server, listener, logger, shutdownTimeout); err != nil {
 		logger.Error("HTTP server failed", "error", err)
 		return 1
