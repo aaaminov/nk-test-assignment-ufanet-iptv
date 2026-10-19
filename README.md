@@ -2,7 +2,7 @@
 
 Мини-бэкенд IPTV/OTT на Go и PostgreSQL. Сейчас реализованы HTTP-процесс,
 конфигурация, подключение к БД, автоматические миграции и demo-данные.
-API пока отсутствует; HTTP-запросы возвращают 404.
+Доступен каталог каналов с HTTP Basic Auth; playback пока не реализован.
 
 ## Запуск
 
@@ -66,6 +66,24 @@ HLS URL имеют вид `https://stream.example.com/live/ch1/index.m3u8`;
 без root; exec `ENTRYPOINT` передаёт SIGTERM непосредственно процессу.
 Приложение даёт HTTP-запросам до 10 секунд на завершение, затем закрывает
 pool БД. Compose ждёт остановки процесса до 15 секунд.
+
+## Каталог каналов
+
+```sh
+curl -u viewer:viewer_demo http://127.0.0.1:8080/api/v1/channels
+```
+
+`GET /api/v1/channels` возвращает `200` и JSON вида
+`{"channels":[{"id":1,"number":1,"name":"Первый"}]}`. В списке только
+активные каналы, упорядоченные по `number`, затем `id`; пустой каталог —
+`{"channels":[]}`. URL потоков в каталог не входят.
+
+Доступ разрешён активному пользователю с верным паролем. Отсутствующие или
+неверные credentials дают `401` с `WWW-Authenticate: Basic realm="iptv"`.
+Внутренний сбой даёт `500` без подробностей БД. Формат ошибок:
+`{"error":{"code":"internal_error","message":"internal server error"}}`;
+для `401` используются `code: unauthorized` и `message: authentication required`.
+SQL-запрос каталога ограничен 3 секундами и учитывает отмену HTTP-запроса.
 
 ## Проверки
 

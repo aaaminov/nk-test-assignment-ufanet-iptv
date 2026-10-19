@@ -4,22 +4,17 @@ package postgres_test
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"net"
-	"net/url"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"nk-test-assignment-ufanet-iptv/internal/postgres"
+	"nk-test-assignment-ufanet-iptv/internal/testdb"
 )
 
 func TestOpen(t *testing.T) {
-	databaseURL, schema := isolatedDatabase(t)
+	databaseURL, schema := testdb.IsolatedDatabase(t)
 
 	t.Run("connection and pool limit", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -106,48 +101,4 @@ func TestOpen(t *testing.T) {
 			t.Fatal("Open succeeded for an unavailable database")
 		}
 	})
-}
-
-// isolatedDatabase creates only its own schema in the explicitly selected test database.
-func isolatedDatabase(t *testing.T) (databaseURL, schema string) {
-	t.Helper()
-	databaseURL = os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("TEST_DATABASE_URL is required (use a separate test database)")
-	}
-	parsed, err := url.Parse(databaseURL)
-	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
-		t.Fatal("TEST_DATABASE_URL must be a PostgreSQL URL")
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	admin, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect test database failed (check TEST_DATABASE_URL)")
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := admin.Close(ctx); err != nil {
-			t.Error("close test database connection failed")
-		}
-	})
-
-	schema = "iptv_test_" + strings.ToLower(rand.Text())
-	identifier := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create test schema failed")
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := admin.Exec(ctx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
-			t.Error("drop test schema failed")
-		}
-	})
-
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String(), schema
 }
