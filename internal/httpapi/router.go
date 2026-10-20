@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"nk-test-assignment-ufanet-iptv/internal/iptv"
 )
@@ -29,12 +30,15 @@ func NewRouter(users UserLookup, channels ChannelLister, playback PlaybackGetter
 	api.HandleFunc("/api/v1/channels/{id}/playback", methodNotAllowed)
 	api.HandleFunc("/", notFound)
 
-	mux := http.NewServeMux()
 	protected := BasicAuth(users, logger, api)
-	mux.Handle("/api/v1", protected)
-	mux.Handle("/api/v1/", protected)
-	mux.HandleFunc("/", notFound)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Authenticate API requests before ServeMux can canonicalize their paths.
+		if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			protected.ServeHTTP(w, r)
+			return
+		}
+		notFound(w, r)
+	})
 }
 
 type channelResponse struct {
