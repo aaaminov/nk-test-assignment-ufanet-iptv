@@ -3,11 +3,11 @@ services:
     build: .
     environment:
       HTTP_ADDR: :8080
-      DATABASE_URL: postgres://iptv_demo:iptv_demo@db:5432/iptv_demo?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -16,13 +16,13 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: iptv_demo
-      POSTGRES_PASSWORD: iptv_demo
-      POSTGRES_DB: iptv_demo
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "iptv_demo", "-d", "iptv_demo"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 1s
       timeout: 3s
       retries: 30
