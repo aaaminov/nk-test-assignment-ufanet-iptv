@@ -13,6 +13,12 @@ type Playback struct {
 	URL       string
 }
 
+// PlaybackAccess distinguishes a found channel from permission to watch it.
+type PlaybackAccess struct {
+	Playback Playback
+	Allowed  bool
+}
+
 type PlaybackStore interface {
 	LookupActivePlayback(ctx context.Context, id int64) (Playback, error)
 }

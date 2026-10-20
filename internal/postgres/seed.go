@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"nk-test-assignment-ufanet-iptv/internal/auth"
@@ -23,6 +24,19 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer tx.Rollback(ctx)
 
+	if err := seedBase(ctx, tx); err != nil {
+		return err
+	}
+	if err := seedSubscriptions(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit seed: %w", err)
+	}
+	return nil
+}
+
+func seedBase(ctx context.Context, tx pgx.Tx) error {
 	const seed = "base_demo"
 	var applied bool
 	if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM data_seeds WHERE name = $1)", seed).Scan(&applied); err != nil {
@@ -59,8 +73,35 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := tx.Exec(ctx, "INSERT INTO data_seeds (name) VALUES ($1)", seed); err != nil {
 		return fmt.Errorf("record seed: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit seed: %w", err)
+	return nil
+}
+
+func seedSubscriptions(ctx context.Context, tx pgx.Tx) error {
+	const seed = "subscriptions_demo"
+	var applied bool
+	if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM data_seeds WHERE name = $1)", seed).Scan(&applied); err != nil {
+		return fmt.Errorf("check subscriptions seed: %w", err)
+	}
+	if applied {
+		return nil
+	}
+
+	// Only existing, recognizable demo records receive subscriptions on upgrade.
+	// Never recreate removed users/channels or overwrite an existing subscription.
+	if _, err := tx.Exec(ctx, `INSERT INTO subscriptions (user_id, channel_id, active, expires_at)
+		SELECT u.id, c.id, c.number <> 3,
+			CASE c.number
+				WHEN 2 THEN statement_timestamp() + interval '1 day'
+				WHEN 4 THEN statement_timestamp() - interval '1 day'
+			END
+		FROM users u CROSS JOIN channels c
+		WHERE u.login = 'viewer' AND c.number BETWEEN 1 AND 5
+			AND c.stream_url = 'https://stream.example.com/live/ch' || c.number || '/index.m3u8'
+		ON CONFLICT (user_id, channel_id) DO NOTHING`); err != nil {
+		return fmt.Errorf("seed subscriptions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO data_seeds (name) VALUES ($1)", seed); err != nil {
+		return fmt.Errorf("record subscriptions seed: %w", err)
 	}
 	return nil
 }
