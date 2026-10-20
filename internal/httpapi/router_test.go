@@ -79,8 +79,12 @@ func TestRouterAuthPrecedence(t *testing.T) {
 		{"auth before catalog method", http.MethodPost, "/api/v1/channels", false},
 		{"auth before playback method and ID", http.MethodPost, "/api/v1/channels/invalid/playback", false},
 		{"auth before unknown path", http.MethodGet, "/api/v1/unknown", false},
+		{"auth before repeated slashes", http.MethodGet, "/api/v1//unknown", false},
+		{"auth before dot segment", http.MethodGet, "/api/v1/./unknown", false},
+		{"auth before parent segment", http.MethodGet, "/api/v1/channels/../unknown", false},
 		{"auth at API root", http.MethodGet, "/api/v1", false},
 		{"lookup failure before method and ID", http.MethodPost, "/api/v1/channels/invalid/playback", true},
+		{"lookup failure before redirect", http.MethodGet, "/api/v1//unknown", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			users := userLookupFunc(func(context.Context, string) (iptv.User, error) {
@@ -107,10 +111,33 @@ func TestRouterAuthPrecedence(t *testing.T) {
 			if w.Code != wantStatus || w.Body.String() != wantBody {
 				t.Fatalf("status = %d, body = %s; want status %d and %s", w.Code, w.Body.String(), wantStatus, wantBody)
 			}
-			if w.Header().Get("Content-Type") != "application/json" || w.Header().Get("WWW-Authenticate") != wantChallenge || w.Header().Get("Allow") != "" {
+			if w.Header().Get("Content-Type") != "application/json" || w.Header().Get("WWW-Authenticate") != wantChallenge || w.Header().Get("Allow") != "" || w.Header().Get("Location") != "" {
 				t.Fatalf("unexpected auth headers: %v", w.Header())
 			}
 		})
+	}
+}
+
+func TestRouterAuthenticatedRedirect(t *testing.T) {
+	hash, err := auth.HashPassword("redirect-test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookedUp := false
+	users := userLookupFunc(func(context.Context, string) (iptv.User, error) {
+		lookedUp = true
+		return iptv.User{ID: 1, PasswordHash: hash, Active: true}, nil
+	})
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	r := httptest.NewRequest(http.MethodGet, "/api/v1//unknown?test=1", nil)
+	r.SetBasicAuth("redirect-test-user", "redirect-test-password")
+	w := httptest.NewRecorder()
+	httpapi.NewRouter(users, nil, nil, logger).ServeHTTP(w, r)
+	if !lookedUp {
+		t.Fatal("authentication must run before redirect")
+	}
+	if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != "/api/v1/unknown?test=1" {
+		t.Fatalf("status = %d, headers = %v; want canonical redirect", w.Code, w.Header())
 	}
 }
 
