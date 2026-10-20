@@ -186,10 +186,21 @@ docker compose config --quiet
 `make test` запускает только unit-тесты. Обе команды автономны:
 Docker и PostgreSQL им не нужны. Все targets описаны в `make help`.
 
-GitHub Actions на `push`/`pull_request` запускает те же `make check` и
-`make integration` отдельными jobs. Integration-job поднимает PostgreSQL 17
-через `compose.test.yaml` и всегда останавливает стенд. Go берётся из `go.mod`,
-кэш — через `actions/setup-go`, публичные test-настройки — из `.env.example`.
+GitHub Actions запускает `make check` и `make integration` отдельными jobs
+для PR в `main` и при `push` в `main`, в том числе после merge. Push в остальные
+ветки и теги отдельно CI не запускает; новые коммиты открытого PR проверяются
+через `pull_request`. Проверка после merge подтверждает итоговое состояние `main`.
+Новый запуск отменяет устаревший прогон того же PR или `main`; каждый job
+ограничен 10 минутами.
+
+Integration-job поднимает PostgreSQL 17 через `compose.test.yaml` и останавливает
+стенд шагом с `if: always()`. Go берётся из `go.mod`, кэш — через `actions/setup-go`,
+публичные test-настройки — из `.env.example`.
+
+В настройках GitHub ruleset `protect-main` требует PR, успешные checks `check`
+и `integration`, актуальность ветки относительно `main` и разрешение обсуждений
+перед merge. Прямой push, force push и удаление `main` запрещены, в том числе
+для администратора. Approval другого участника не обязателен.
 
 Integration-тесты проверяют SQL, миграции/seed, HTTP + PostgreSQL, отмену
 запросов и возврат соединений. Нужны Docker и свободный порт `15432`.
