@@ -1,0 +1,36 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make check
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Start test database
+        run: docker compose --env-file .env.example -f compose.test.yaml -p iptv-test up -d --wait db
+      - name: Run integration tests
+        run: |
+          . ./.env.example
+          export TEST_DATABASE_URL
+          make integration
+      - name: Stop test database
+        if: always()
+        run: docker compose --env-file .env.example -f compose.test.yaml -p iptv-test down

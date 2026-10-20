@@ -142,6 +142,13 @@ docker compose config --quiet
 `make test` запускает только unit-тесты. Обе команды автономны:
 Docker и PostgreSQL им не нужны. Все targets описаны в `make help`.
 
+Workflow GitHub Actions настроен на `push` и `pull_request`: job `check`
+выполняет `make check`, а `integration` поднимает PostgreSQL 17 через
+`compose.test.yaml`, выполняет `make integration` и останавливает стенд
+даже при ошибке проверки. CI использует публичные настройки `.env.example`
+и явный `TEST_DATABASE_URL`. Версия Go берётся из `go.mod`, кэширование
+модулей и build cache обеспечивает `actions/setup-go`.
+
 Integration-тесты используют отдельную временную PostgreSQL 17,
 по умолчанию на `127.0.0.1:15432`, без demo-volume:
 
