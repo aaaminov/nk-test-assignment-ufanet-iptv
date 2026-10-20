@@ -48,13 +48,16 @@ func TestPlaybackPostgreSQL(t *testing.T) {
 	}{
 		{"missing auth", "1", false, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"authentication required"}}`},
 		{"active channel", "1", true, http.StatusOK, `{"channel_id":1,"url":"https://stream.example.com/live/ch1/index.m3u8"}`},
+		{"temporary subscription", "2", true, http.StatusOK, `{"channel_id":2,"url":"https://stream.example.com/live/ch2/index.m3u8"}`},
+		{"disabled subscription", "3", true, http.StatusForbidden, `{"error":{"code":"subscription_required","message":"active subscription required"}}`},
+		{"expired subscription", "4", true, http.StatusForbidden, `{"error":{"code":"subscription_required","message":"active subscription required"}}`},
 		{"disabled channel", "5", true, http.StatusNotFound, `{"error":{"code":"channel_not_found","message":"channel not found"}}`},
 		{"missing channel", "9223372036854775807", true, http.StatusNotFound, `{"error":{"code":"channel_not_found","message":"channel not found"}}`},
 		{"database failure", "1", true, http.StatusInternalServerError, `{"error":{"code":"internal_error","message":"internal server error"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.wantStatus == http.StatusInternalServerError {
-				if _, err := pool.Exec(t.Context(), "DROP TABLE channels"); err != nil {
+				if _, err := pool.Exec(t.Context(), "DROP TABLE channels CASCADE"); err != nil {
 					t.Fatal(err)
 				}
 			}

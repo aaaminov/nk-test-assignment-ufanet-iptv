@@ -17,10 +17,10 @@ import (
 	"nk-test-assignment-ufanet-iptv/internal/iptv"
 )
 
-type playbackGetterFunc func(context.Context, int64) (iptv.Playback, error)
+type playbackGetterFunc func(context.Context, int64, int64) (iptv.Playback, error)
 
-func (f playbackGetterFunc) GetPlayback(ctx context.Context, id int64) (iptv.Playback, error) {
-	return f(ctx, id)
+func (f playbackGetterFunc) GetPlayback(ctx context.Context, userID, id int64) (iptv.Playback, error) {
+	return f(ctx, userID, id)
 }
 
 func TestPlayback(t *testing.T) {
@@ -29,7 +29,7 @@ func TestPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	users := userLookupFunc(func(context.Context, string) (iptv.User, error) {
-		return iptv.User{ID: 1, PasswordHash: hash, Active: true}, nil
+		return iptv.User{ID: 7, PasswordHash: hash, Active: true}, nil
 	})
 	const invalidBody = `{"error":{"code":"invalid_id","message":"channel id must be a positive int64"}}`
 	for _, tc := range []struct {
@@ -49,25 +49,28 @@ func TestPlayback(t *testing.T) {
 		{"fractional ID", "1.5", 0, nil, http.StatusBadRequest, invalidBody},
 		{"SQL metacharacters", "1%20OR%201=1", 0, nil, http.StatusBadRequest, invalidBody},
 		{"unavailable channel", "5", 5, fmt.Errorf("lookup: %w", iptv.ErrChannelNotFound), http.StatusNotFound, `{"error":{"code":"channel_not_found","message":"channel not found"}}`},
+		{"subscription required", "42", 42, fmt.Errorf("lookup: %w", iptv.ErrSubscriptionRequired), http.StatusForbidden, `{"error":{"code":"subscription_required","message":"active subscription required"}}`},
 		{"store failure", "42", 42, errors.New("sensitive-database-detail: SELECT stream_url FROM channels"), http.StatusInternalServerError, `{"error":{"code":"internal_error","message":"internal server error"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
 			logger := slog.New(slog.NewJSONHandler(&logs, nil))
-			ctx, cancel := context.WithCancel(t.Context())
+			type requestKey struct{}
+			ctx, cancel := context.WithCancel(context.WithValue(t.Context(), requestKey{}, "playback-request"))
 			defer cancel()
 			called := false
-			player := playbackGetterFunc(func(got context.Context, id int64) (iptv.Playback, error) {
+			player := playbackGetterFunc(func(got context.Context, userID, id int64) (iptv.Playback, error) {
 				called = true
-				if got != ctx || id != tc.wantID {
-					t.Fatal("player must receive the request context and parsed channel ID")
+				if got.Value(requestKey{}) != "playback-request" || got.Done() != ctx.Done() || userID != 7 || id != tc.wantID {
+					t.Fatal("player must receive the request context, authenticated user ID and parsed channel ID")
 				}
 				if tc.err != nil {
 					return iptv.Playback{ChannelID: id, URL: "partial-result"}, tc.err
 				}
 				return iptv.Playback{ChannelID: id, URL: "https://stream.example.com/live/custom/index.m3u8"}, nil
 			})
-			r := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+tc.id+"/playback", nil).WithContext(ctx)
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+tc.id+"/playback?user_id=99", nil).WithContext(ctx)
+			r.Header.Set("X-User-ID", "99")
 			r.SetBasicAuth("playback-test-user", "playback-test-password")
 			w := httptest.NewRecorder()
 			httpapi.NewRouter(users, nil, player, logger).ServeHTTP(w, r)
@@ -77,6 +80,9 @@ func TestPlayback(t *testing.T) {
 			}
 			if w.Header().Get("Content-Type") != "application/json" {
 				t.Fatal("playback response must be JSON")
+			}
+			if w.Header().Get("WWW-Authenticate") != "" {
+				t.Fatal("an authenticated playback request must not challenge for credentials")
 			}
 			if tc.wantStatus == http.StatusInternalServerError && !strings.Contains(logs.String(), "get playback failed") {
 				t.Fatal("playback failure must be logged")

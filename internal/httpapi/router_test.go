@@ -149,15 +149,17 @@ func TestRouterHEAD(t *testing.T) {
 	users := userLookupFunc(func(context.Context, string) (iptv.User, error) {
 		return iptv.User{ID: 1, PasswordHash: hash, Active: true}, nil
 	})
-	catalog := channelListerFunc(func(context.Context) ([]iptv.Channel, error) {
+	catalog := channelListerFunc(func(context.Context, int64) ([]iptv.Channel, error) {
 		return []iptv.Channel{{ID: 1, Number: 1, Name: "Первый"}}, nil
 	})
-	player := playbackGetterFunc(func(ctx context.Context, id int64) (iptv.Playback, error) {
+	player := playbackGetterFunc(func(ctx context.Context, userID, id int64) (iptv.Playback, error) {
 		switch id {
 		case 1:
 			return iptv.Playback{ChannelID: 1, URL: "https://stream.example.com/live/ch1/index.m3u8"}, nil
 		case 2:
 			return iptv.Playback{}, iptv.ErrChannelNotFound
+		case 4:
+			return iptv.Playback{}, iptv.ErrSubscriptionRequired
 		default:
 			return iptv.Playback{}, errors.New("private-database-detail")
 		}
@@ -177,6 +179,7 @@ func TestRouterHEAD(t *testing.T) {
 		{"playback", "/api/v1/channels/1/playback", true, http.StatusOK},
 		{"invalid ID", "/api/v1/channels/invalid/playback", true, http.StatusBadRequest},
 		{"unavailable channel", "/api/v1/channels/2/playback", true, http.StatusNotFound},
+		{"subscription required", "/api/v1/channels/4/playback", true, http.StatusForbidden},
 		{"internal error", "/api/v1/channels/3/playback", true, http.StatusInternalServerError},
 		{"unknown path", "/api/v1/unknown", true, http.StatusNotFound},
 		{"missing auth", "/api/v1/channels/invalid/playback", false, http.StatusUnauthorized},

@@ -44,7 +44,7 @@ func TestChannelsPostgreSQL(t *testing.T) {
 		wantBody   string
 	}{
 		{"missing auth", false, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"authentication required"}}`},
-		{"active viewer", true, http.StatusOK, `{"channels":[{"id":1,"number":1,"name":"Первый"},{"id":2,"number":2,"name":"Россия 1"},{"id":3,"number":3,"name":"Матч ТВ"},{"id":4,"number":4,"name":"НТВ"}]}`},
+		{"subscribed viewer", true, http.StatusOK, `{"channels":[{"id":1,"number":1,"name":"Первый"},{"id":2,"number":2,"name":"Россия 1"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v1/channels", nil)

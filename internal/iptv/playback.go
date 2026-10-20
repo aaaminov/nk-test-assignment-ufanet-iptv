@@ -7,14 +7,21 @@ import (
 )
 
 var ErrChannelNotFound = errors.New("channel not found")
+var ErrSubscriptionRequired = errors.New("active subscription required")
 
 type Playback struct {
 	ChannelID int64
 	URL       string
 }
 
+// PlaybackAccess distinguishes a found channel from permission to watch it.
+type PlaybackAccess struct {
+	Playback Playback
+	Allowed  bool
+}
+
 type PlaybackStore interface {
-	LookupActivePlayback(ctx context.Context, id int64) (Playback, error)
+	LookupPlaybackAccess(ctx context.Context, userID, channelID int64) (PlaybackAccess, error)
 }
 
 type Player struct {
@@ -25,11 +32,14 @@ func NewPlayer(channels PlaybackStore) *Player {
 	return &Player{channels: channels}
 }
 
-// GetPlayback returns the stored HLS URL of an active channel.
-func (p *Player) GetPlayback(ctx context.Context, id int64) (Playback, error) {
-	playback, err := p.channels.LookupActivePlayback(ctx, id)
+// GetPlayback returns an active channel's HLS URL only with a valid subscription.
+func (p *Player) GetPlayback(ctx context.Context, userID, id int64) (Playback, error) {
+	access, err := p.channels.LookupPlaybackAccess(ctx, userID, id)
 	if err != nil {
 		return Playback{}, fmt.Errorf("get playback: %w", err)
 	}
-	return playback, nil
+	if !access.Allowed {
+		return Playback{}, ErrSubscriptionRequired
+	}
+	return access.Playback, nil
 }

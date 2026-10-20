@@ -5,6 +5,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -27,11 +28,13 @@ func TestMigrate(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM users) = 0 AND
 		(SELECT count(*) FROM channels) = 0 AND
-		(SELECT count(*) FROM schema_migrations) = 2 AND
+		(SELECT count(*) FROM subscriptions) = 0 AND
+		(SELECT count(*) FROM schema_migrations) = 3 AND
 		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '001_initial.sql') AND
 		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '002_seed.sql') AND
+		EXISTS (SELECT 1 FROM schema_migrations WHERE version = '003_subscriptions.sql') AND
 		(SELECT count(*) FROM data_seeds) = 0`).Scan(&empty); err != nil || !empty {
-		t.Fatalf("initial schema: empty tables and two versions = %v, error = %v", empty, err)
+		t.Fatalf("initial schema: empty tables and three versions = %v, error = %v", empty, err)
 	}
 
 	var userID, channelID int64
@@ -46,6 +49,13 @@ func TestMigrate(t *testing.T) {
 	}
 	if userID <= 0 || channelID <= 0 {
 		t.Fatal("generated IDs must be positive")
+	}
+	if _, err := pool.Exec(ctx, "INSERT INTO subscriptions (user_id, channel_id) VALUES ($1, $2)", userID, channelID); err != nil {
+		t.Fatal(err)
+	}
+	var permanent bool
+	if err := pool.QueryRow(ctx, "SELECT active AND expires_at IS NULL FROM subscriptions WHERE user_id = $1 AND channel_id = $2", userID, channelID).Scan(&permanent); err != nil || !permanent {
+		t.Fatalf("subscription defaults: permanent and active = %v, error = %v", permanent, err)
 	}
 	var active bool
 	if err := pool.QueryRow(ctx, "SELECT active FROM channels WHERE id = $1", channelID).Scan(&active); err != nil || !active {
@@ -67,6 +77,10 @@ func TestMigrate(t *testing.T) {
 	}{
 		{"duplicate login", "INSERT INTO users (login, password_hash) VALUES ('viewer', 'other-hash')", "23505"},
 		{"invalid number", "INSERT INTO channels (number, name, stream_url) VALUES (0, 'Invalid', 'https://stream.example.com/index.m3u8')", "23514"},
+		{"duplicate subscription", "INSERT INTO subscriptions (user_id, channel_id) SELECT user_id, channel_id FROM subscriptions", "23505"},
+		{"missing user", "INSERT INTO subscriptions (user_id, channel_id) SELECT -1, id FROM channels LIMIT 1", "23503"},
+		{"missing channel", "INSERT INTO subscriptions (user_id, channel_id) SELECT id, -1 FROM users LIMIT 1", "23503"},
+		{"null activity", "UPDATE subscriptions SET active = NULL", "23502"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := pool.Exec(ctx, tc.sql)
@@ -94,7 +108,8 @@ func TestMigrate(t *testing.T) {
 			AND stream_url = 'https://stream.example.com/live/1/index.m3u8') AND
 		(SELECT count(*) FROM users) = 1 AND
 		(SELECT count(*) FROM channels) = 2 AND
-		(SELECT count(*) FROM schema_migrations) = 2`, userID, channelID).Scan(&preserved); err != nil || !preserved {
+		(SELECT count(*) FROM subscriptions) = 1 AND
+		(SELECT count(*) FROM schema_migrations) = 3`, userID, channelID).Scan(&preserved); err != nil || !preserved {
 		t.Fatalf("repeat migration preserved data and version: %v, error = %v", preserved, err)
 	}
 }
@@ -113,6 +128,13 @@ func TestMigrateRollback(t *testing.T) {
 			code:    "42P07",
 			intact:  "SELECT to_regclass('users') IS NULL AND to_regclass('schema_migrations') IS NULL AND (SELECT marker FROM channels) = 7",
 			cleanup: "DROP TABLE channels",
+		},
+		{
+			name:    "subscriptions DDL failure",
+			setup:   "CREATE TABLE subscriptions (marker integer); INSERT INTO subscriptions VALUES (7)",
+			code:    "42P07",
+			intact:  "SELECT to_regclass('users') IS NULL AND to_regclass('data_seeds') IS NULL AND to_regclass('schema_migrations') IS NULL AND (SELECT marker FROM subscriptions) = 7",
+			cleanup: "DROP TABLE subscriptions",
 		},
 		{
 			name:    "version write failure",
@@ -150,10 +172,73 @@ func TestMigrateRollback(t *testing.T) {
 			var complete bool
 			if err := pool.QueryRow(ctx, `SELECT
 				to_regclass('users') IS NOT NULL AND to_regclass('channels') IS NOT NULL AND
-				(SELECT count(*) FROM schema_migrations) = 2`).Scan(&complete); err != nil || !complete {
+				to_regclass('subscriptions') IS NOT NULL AND
+				(SELECT count(*) FROM schema_migrations) = 3`).Scan(&complete); err != nil || !complete {
 				t.Fatalf("retry created schema and version: %v, error = %v", complete, err)
 			}
 		})
+	}
+}
+
+func TestSubscriptionsUpgrade(t *testing.T) {
+	pool := testPool(t)
+	ctx := t.Context()
+	// Build the previously shipped schema using its unchanged migration files.
+	if _, err := pool.Exec(ctx, "CREATE TABLE schema_migrations (version text PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"001_initial.sql", "002_seed.sql"} {
+		sql, err := os.ReadFile("migrations/" + version)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO schema_migrations VALUES ($1)", version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO data_seeds VALUES ('base_demo');
+		INSERT INTO users (login, password_hash, active) VALUES ('viewer', 'edited-hash', false);
+		INSERT INTO channels (number, name, stream_url, active) VALUES
+			(1, 'Edited', 'https://stream.example.com/live/ch1/index.m3u8', false),
+			(2, 'Custom', 'https://example.com/custom.m3u8', true),
+			(3, 'Existing demo', 'https://stream.example.com/live/ch3/index.m3u8', true)`); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := range 2 {
+		if err := postgres.Migrate(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+		if attempt == 0 {
+			if _, err := pool.Exec(ctx, `INSERT INTO subscriptions (user_id, channel_id, active, expires_at)
+				SELECT u.id, c.id, false, '2020-01-01T00:00:00Z'
+				FROM users u CROSS JOIN channels c WHERE c.number = 1`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := postgres.Seed(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var preserved bool
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM schema_migrations) = 3 AND
+		(SELECT count(*) FROM data_seeds) = 2 AND
+		EXISTS (SELECT 1 FROM data_seeds WHERE name = 'subscriptions_demo') AND
+		(SELECT count(*) FROM users) = 1 AND
+		EXISTS (SELECT 1 FROM users WHERE login = 'viewer' AND password_hash = 'edited-hash' AND NOT active) AND
+		(SELECT count(*) FROM channels) = 3 AND
+		EXISTS (SELECT 1 FROM channels WHERE name = 'Edited' AND NOT active) AND
+		EXISTS (SELECT 1 FROM channels WHERE name = 'Custom' AND stream_url = 'https://example.com/custom.m3u8') AND
+		(SELECT count(*) FROM subscriptions) = 2 AND
+		EXISTS (SELECT 1 FROM subscriptions s JOIN channels c ON c.id = s.channel_id
+			WHERE c.number = 3 AND NOT s.active AND s.expires_at IS NULL) AND
+		EXISTS (SELECT 1 FROM subscriptions s JOIN channels c ON c.id = s.channel_id
+			WHERE c.number = 1 AND NOT s.active AND s.expires_at = '2020-01-01T00:00:00Z')`).Scan(&preserved); err != nil || !preserved {
+		t.Fatalf("upgrade preserved edits and seeded existing demo records once = %v, error = %v", preserved, err)
 	}
 }
 

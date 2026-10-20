@@ -14,6 +14,8 @@ type UserLookup interface {
 	LookupUser(ctx context.Context, login string) (iptv.User, error)
 }
 
+type userIDKey struct{}
+
 // BasicAuth allows only active users with a matching password to reach next.
 func BasicAuth(users UserLookup, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +29,8 @@ func BasicAuth(users UserLookup, logger *slog.Logger, next http.Handler) http.Ha
 				return
 			}
 			if err == nil && user.Active && auth.CheckPassword(user.PasswordHash, password) {
-				next.ServeHTTP(w, r)
+				ctx := context.WithValue(r.Context(), userIDKey{}, user.ID)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 		}
