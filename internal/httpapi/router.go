@@ -31,14 +31,14 @@ func NewRouter(users UserLookup, channels ChannelLister, playback PlaybackGetter
 	api.HandleFunc("/", notFound)
 
 	protected := BasicAuth(users, logger, api)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return accessLog(logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Authenticate API requests before ServeMux can canonicalize their paths.
 		if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			protected.ServeHTTP(w, r)
 			return
 		}
 		notFound(w, r)
-	})
+	}))
 }
 
 type channelResponse struct {

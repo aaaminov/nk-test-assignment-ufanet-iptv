@@ -29,6 +29,9 @@ docker compose --env-file .env.example up
 или `down`. Данные сохраняются в volume `postgres_data`, в том числе после
 `down`. Повторный запуск сохраняет изменения и удаления, не продлевает подписки.
 
+Логи запросов (метод, путь, статус, длительность):
+`docker compose --env-file .env.example logs -f app`.
+
 ## API
 
 Оба ресурса требуют HTTP Basic Auth. Примеры выполняются во втором терминале.
