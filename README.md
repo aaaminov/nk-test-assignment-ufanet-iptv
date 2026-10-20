@@ -6,14 +6,16 @@
 
 ## Запуск
 
-Нужны Docker Engine и Docker Compose. Из корня проекта:
+Нужны Docker Engine и Docker Compose. Перед первым запуском из корня
+проекта скопируйте пример настроек:
 
 ```sh
+cp .env.example .env
 docker compose up
 ```
 
 Compose собирает приложение и запускает его после готовности PostgreSQL 17.
-Go на хосте и подготовка `.env` не требуются. HTTP доступен по
+Go на хосте не требуется. HTTP по умолчанию доступен по
 `http://127.0.0.1:8080`; порт БД на хост не публикуется.
 
 ```sh
@@ -28,11 +30,22 @@ docker compose up
 docker compose up --build
 ```
 
-Compose использует публичные demo-настройки БД: база и пользователь `iptv_demo`,
-пароль `iptv_demo`, без TLS внутри Docker-сети. Они предназначены для локального
-запуска. `DATABASE_URL` приложения указывает на hostname `db`.
-`DB_MAX_CONNS` (по умолчанию `10`) и `LOG_LEVEL` (по умолчанию `info`) можно
-переопределить переменными окружения при запуске Compose.
+Compose берёт настройки из `.env` или окружения процесса; окружение имеет
+приоритет. `.env.example` содержит публичные значения для локального demo
+и отдельной тестовой БД. Локальный `.env` исключён из Git и Docker build context.
+
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` и `DATABASE_URL` обязательны.
+В `DATABASE_URL` укажите те же пользователя, пароль и БД; hostname внутри
+Compose — `db`, порт — `5432`. В URL экранируйте спецсимволы в логине
+и пароле через percent-encoding. `HTTP_PORT` задаёт порт на хосте (по умолчанию `8080`),
+`DB_MAX_CONNS` — размер pool (по умолчанию `10`), `LOG_LEVEL` — уровень логов
+(по умолчанию `info`). Без TLS внутри Docker-сети этот стенд предназначен
+для локального запуска.
+
+`POSTGRES_*` применяются при инициализации пустой БД: правка `.env` не меняет
+пользователей и пароли в существующем volume. Go-приложение само `.env`
+не читает; при запуске вне Compose передайте доступный `DATABASE_URL`
+через окружение процесса.
 
 До открытия HTTP-порта приложение создаёт таблицы `users`, `channels`,
 `schema_migrations` и `data_seeds`. SQL-файлы встроены в бинарник через `embed`
@@ -129,14 +142,26 @@ docker compose config --quiet
 `make test` запускает только unit-тесты. Обе команды автономны:
 Docker и PostgreSQL им не нужны. Все targets описаны в `make help`.
 
-Integration-тесты используют отдельную временную PostgreSQL 17 на
-`127.0.0.1:15432`, без demo-volume:
+Integration-тесты используют отдельную временную PostgreSQL 17,
+по умолчанию на `127.0.0.1:15432`, без demo-volume:
 
 ```sh
 docker compose -f compose.test.yaml -p iptv-test up -d --wait db
-TEST_DATABASE_URL='postgres://iptv_test@127.0.0.1:15432/iptv_test?sslmode=disable' make integration
+(
+  . ./.env
+  export TEST_DATABASE_URL
+  make integration
+)
 docker compose -f compose.test.yaml -p iptv-test down
 ```
+
+Настройки test-стенда задаются переменными `TEST_POSTGRES_USER`,
+`TEST_POSTGRES_PASSWORD`, `TEST_POSTGRES_DB`, `TEST_POSTGRES_PORT`
+и `TEST_DATABASE_URL` из `.env`. Пользователь, пароль, имя БД и порт
+в `TEST_DATABASE_URL` должны соответствовать test-стенду. Файл примера
+совместим с shell; значения со спецсимволами заключайте в одинарные кавычки.
+Если настройки уже экспортированы в окружение, запускайте `make integration`
+напрямую, без загрузки `.env` в shell.
 
 Остановите test-стенд и при ошибке тестов. `TEST_DATABASE_URL` обязателен;
 используйте только отдельную test-БД.

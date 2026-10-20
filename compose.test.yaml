@@ -1,18 +1,18 @@
 # Disposable integration database, started and stopped explicitly.
-# TEST_DATABASE_URL=postgres://iptv_test@127.0.0.1:15432/iptv_test?sslmode=disable
+# Connection settings are supplied through .env or the process environment.
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: iptv_test
-      POSTGRES_DB: iptv_test
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: ${TEST_POSTGRES_USER:?TEST_POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?TEST_POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:?TEST_POSTGRES_DB is required}
     ports:
-      - "127.0.0.1:15432:5432"
+      - "127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432"
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U iptv_test -d iptv_test"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 1s
       timeout: 3s
       retries: 30
