@@ -9,10 +9,10 @@ import (
 	"nk-test-assignment-ufanet-iptv/internal/iptv"
 )
 
-type channelStoreFunc func(context.Context) ([]iptv.Channel, error)
+type channelStoreFunc func(context.Context, int64) ([]iptv.Channel, error)
 
-func (f channelStoreFunc) ListActiveChannels(ctx context.Context) ([]iptv.Channel, error) {
-	return f(ctx)
+func (f channelStoreFunc) ListSubscribedChannels(ctx context.Context, userID int64) ([]iptv.Channel, error) {
+	return f(ctx, userID)
 }
 
 func TestCatalogListChannels(t *testing.T) {
@@ -31,13 +31,13 @@ func TestCatalogListChannels(t *testing.T) {
 		{"failure after partial result", ordered, failure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := channelStoreFunc(func(ctx context.Context) ([]iptv.Channel, error) {
-				if ctx != t.Context() {
-					t.Fatal("catalog must forward the caller context")
+			store := channelStoreFunc(func(ctx context.Context, userID int64) ([]iptv.Channel, error) {
+				if ctx != t.Context() || userID != 7 {
+					t.Fatal("catalog must forward the caller context and user ID")
 				}
 				return tc.channels, tc.err
 			})
-			got, err := iptv.NewCatalog(store).ListChannels(t.Context())
+			got, err := iptv.NewCatalog(store).ListChannels(t.Context(), 7)
 			if tc.err != nil {
 				if !errors.Is(err, tc.err) || got != nil {
 					t.Fatal("catalog must preserve the error and discard partial results")

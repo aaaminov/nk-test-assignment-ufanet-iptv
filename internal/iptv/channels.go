@@ -12,7 +12,7 @@ type Channel struct {
 }
 
 type ChannelStore interface {
-	ListActiveChannels(ctx context.Context) ([]Channel, error)
+	ListSubscribedChannels(ctx context.Context, userID int64) ([]Channel, error)
 }
 
 type Catalog struct {
@@ -23,9 +23,9 @@ func NewCatalog(channels ChannelStore) *Catalog {
 	return &Catalog{channels: channels}
 }
 
-// ListChannels returns the active channels in viewing order.
-func (c *Catalog) ListChannels(ctx context.Context) ([]Channel, error) {
-	channels, err := c.channels.ListActiveChannels(ctx)
+// ListChannels returns the user's subscribed active channels in viewing order.
+func (c *Catalog) ListChannels(ctx context.Context, userID int64) ([]Channel, error) {
+	channels, err := c.channels.ListSubscribedChannels(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}

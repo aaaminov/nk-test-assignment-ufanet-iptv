@@ -12,7 +12,7 @@ import (
 )
 
 type PlaybackGetter interface {
-	GetPlayback(ctx context.Context, id int64) (iptv.Playback, error)
+	GetPlayback(ctx context.Context, userID, id int64) (iptv.Playback, error)
 }
 
 func getPlayback(player PlaybackGetter, logger *slog.Logger) http.HandlerFunc {
@@ -23,9 +23,14 @@ func getPlayback(player PlaybackGetter, logger *slog.Logger) http.HandlerFunc {
 			return
 		}
 
-		playback, err := player.GetPlayback(r.Context(), id)
+		userID := r.Context().Value(userIDKey{}).(int64)
+		playback, err := player.GetPlayback(r.Context(), userID, id)
 		if errors.Is(err, iptv.ErrChannelNotFound) {
 			writeError(w, logger, http.StatusNotFound, "channel_not_found", "channel not found")
+			return
+		}
+		if errors.Is(err, iptv.ErrSubscriptionRequired) {
+			writeError(w, logger, http.StatusForbidden, "subscription_required", "active subscription required")
 			return
 		}
 		if err != nil {

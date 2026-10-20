@@ -11,7 +11,7 @@ import (
 )
 
 type ChannelLister interface {
-	ListChannels(ctx context.Context) ([]iptv.Channel, error)
+	ListChannels(ctx context.Context, userID int64) ([]iptv.Channel, error)
 }
 
 func NewRouter(users UserLookup, channels ChannelLister, playback PlaybackGetter, logger *slog.Logger) http.Handler {
@@ -49,7 +49,8 @@ type channelResponse struct {
 
 func listChannels(catalog ChannelLister, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		channels, err := catalog.ListChannels(r.Context())
+		userID := r.Context().Value(userIDKey{}).(int64)
+		channels, err := catalog.ListChannels(r.Context(), userID)
 		if err != nil {
 			logger.Error("list channels failed")
 			writeError(w, logger, http.StatusInternalServerError, "internal_error", "internal server error")

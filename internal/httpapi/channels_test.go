@@ -15,10 +15,10 @@ import (
 	"nk-test-assignment-ufanet-iptv/internal/iptv"
 )
 
-type channelListerFunc func(context.Context) ([]iptv.Channel, error)
+type channelListerFunc func(context.Context, int64) ([]iptv.Channel, error)
 
-func (f channelListerFunc) ListChannels(ctx context.Context) ([]iptv.Channel, error) {
-	return f(ctx)
+func (f channelListerFunc) ListChannels(ctx context.Context, userID int64) ([]iptv.Channel, error) {
+	return f(ctx, userID)
 }
 
 func TestChannels(t *testing.T) {
@@ -27,7 +27,7 @@ func TestChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 	users := userLookupFunc(func(context.Context, string) (iptv.User, error) {
-		return iptv.User{ID: 1, PasswordHash: hash, Active: true}, nil
+		return iptv.User{ID: 7, PasswordHash: hash, Active: true}, nil
 	})
 	for _, tc := range []struct {
 		name       string
@@ -57,17 +57,19 @@ func TestChannels(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
 			logger := slog.New(slog.NewJSONHandler(&logs, nil))
-			ctx, cancel := context.WithCancel(t.Context())
+			type requestKey struct{}
+			ctx, cancel := context.WithCancel(context.WithValue(t.Context(), requestKey{}, "catalog-request"))
 			defer cancel()
 			called := false
-			catalog := channelListerFunc(func(got context.Context) ([]iptv.Channel, error) {
+			catalog := channelListerFunc(func(got context.Context, userID int64) ([]iptv.Channel, error) {
 				called = true
-				if got != ctx {
-					t.Fatal("catalog must receive the HTTP request context")
+				if got.Value(requestKey{}) != "catalog-request" || got.Done() != ctx.Done() || userID != 7 {
+					t.Fatal("catalog must receive the request context and authenticated user ID")
 				}
 				return tc.channels, tc.err
 			})
-			r := httptest.NewRequest(http.MethodGet, "/api/v1/channels", nil).WithContext(ctx)
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/channels?user_id=99", nil).WithContext(ctx)
+			r.Header.Set("X-User-ID", "99")
 			r.SetBasicAuth("catalog-test-user", "catalog-test-password")
 			w := httptest.NewRecorder()
 			httpapi.NewRouter(users, catalog, nil, logger).ServeHTTP(w, r)
